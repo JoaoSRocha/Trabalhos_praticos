@@ -2,9 +2,9 @@
 import cv2
 import os
 import pickle as pkl
-PATH_TO_HERLEV = 'C:/Users/joao/Desktop/Projecto tese e tp/Trabalhos Praticos/herlev_dataset/New database pictures'
+PATH_TO_HERLEV = 'C:/Users/Fixo casaa/Desktop/smear2005/New database pictures'
 PATH_TO_CERVIX93 = 'C:/Users/joao/Desktop/Projecto tese e tp/Trabalhos Praticos/cytology_dataset-master/dataset'
-PATH_TO_PICKLED_DATA ='D:/Users/joao/PycharmProjects/TP/data'
+PATH_TO_PICKLED_DATA ='C:/Users/Fixo casaa/PycharmProjects/Trabalhos_praticos/data'
 
 
 def save_data(path, cervic_or_herlev):  ## dataset (0,1) where 0=cervix93 and 1=Herlev
