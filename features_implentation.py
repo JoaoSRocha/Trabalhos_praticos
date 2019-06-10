@@ -48,14 +48,14 @@ def nuc_aspect_ratio(img):
 
     (x, y), (width, height), angle = rect  # TODO PLAY AROUND AND FIND OUT HOW IT WORKS TO GET WIDTH AND HEIGHT
 
-    return width/height
+    return width / height
 
 
 def nuc_homogenity(img):  # TODO ATENCAO AQUI A IMAGEM TEM DE SER GRAYLEVEL COM MASCARA
     glcm = greycomatrix(img, [1], [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4], levels=256)
     homo = greycoprops(glcm, 'homogeneity')
     #  https://scikit-image.org/docs/0.7.0/api/skimage.feature.texture.html
-    out=max(homo[0])
+    out = max(homo[0])
     return out
 
 
@@ -108,8 +108,29 @@ for idx, each in enumerate(nuc):
 feat_arr = np.asarray(features)
 normalized = np.zeros_like(feat_arr)
 for all in range(0, len(out)):
-    normalized[:, all] = feat_arr[:, all] /max(feat_arr[:, all])
-    i=0
+    normalized[:, all] = feat_arr[:, all] / max(feat_arr[:, all])
+    i = 0
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/names.pkl','rb') as name_id:
+    name_and_folder = pkl.load(name_id)
+# names =[]# np.chararray((len(name_and_folder), 1))
+labels = np.zeros((len(name_and_folder), 1),dtype=int)
+for idx_sep, each_row in enumerate(name_and_folder):
+    name, folder = str(each_row).split(';')
+    # names.append(name)
+    if folder == 'normal_superficiel' or folder == 'normal_intermediate' or folder == 'normal_columnar':
+        labels[idx_sep] = 0
+
+    if folder == 'light_dysplastic':
+        labels[idx_sep] = 1
+    if folder == 'moderate_dysplastic' or folder == 'severe_dysplastic':
+        labels[idx_sep] = 2
+    if folder == 'carcinoma_in_situ':
+        labels[idx_sep] = 3
+
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/labels.pkl', 'wb') as label_id:
+    pkl.dump(labels, label_id)
+
+
 with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/features.pkl', 'wb') as feat_id:
     pkl.dump(normalized, feat_id)
 i = 0
