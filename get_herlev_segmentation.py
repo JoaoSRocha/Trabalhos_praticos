@@ -7,7 +7,7 @@ from sklearn.feature_extraction.image import extract_patches_2d, reconstruct_fro
 
 PATH_TO_EXPERT_HERLEV_SEGMENTATION = 'D:/Users/joao/PycharmProjects/TP/data/herlev_gt.pickle'
 PATH_TO_HERLEV_IMGS = 'D:/Users/joao/PycharmProjects/TP/data/herlev_imgs.pickle'
-EVAL_INDEX = 750
+EVAL_INDEX = 2
 median_kernel_size = 7
 ##FCM
 n_clusters = 7
@@ -85,58 +85,43 @@ def apply_FCM(img, ncenters):
         pidx_list.append(np.int(p_idx))
 
     centers_array = np.reshape(np.asarray(patch_centers), (-1, len(patch_centers)))
-    # centers_array = np.reshape(np.asarray(patch_centers), (-1,))
 
     cntr, u, u0, d, jm, p, fpc = fuzz.cluster.cmeans(centers_array, ncenters, 2, error=0.005, maxiter=1000, init=None)
-    # fcm_centers = np.reshape(cntr[0, :], (-1, 1))
 
     Tn = np.average(cntr) * 0.8
     Tc = np.average(cntr) * 1.2
     p_cluster_matching = get_corresp_center(u)
     matching_cv_patch = np.hstack((cntr, p_cluster_matching))
     sorted_cntr_patch = matching_cv_patch[matching_cv_patch[:, 0].argsort()]
-    # pidx_list = np.c_[pidx_list]  # np.reshape(np.asarray(pidx_list), (-1, 1))
-    # p_fcm_centers = np.hstack([pidx_list, np.uint8(cntr)])  ##stats[stats[:,-1].argsort()[::-1]]
-    # p_fcm_centers = p_fcm_centers[p_fcm_centers[:, -1].argsort()[::-1]]
+
     labels = np.zeros_like(patch_array)
     for each_row in sorted_cntr_patch:
         center_v = each_row[0]
         idx_bool = np.delete(each_row, [0], axis=0)
         if center_v <= Tn:
 
-            labels[idx_bool == 1] = np.ones((3, 3)) * 255
+            labels[idx_bool == 1] = np.ones((3, 3), dtype=int) * 255
         elif Tn < center_v and center_v <= Tc:
-            labels[idx_bool == 1] = np.ones((3, 3)) * 127
+            labels[idx_bool == 1] = np.ones((3, 3), dtype=int) * 127
         else:
-            labels[idx_bool == 1] = np.zeros((3, 3)) * 127
+            labels[idx_bool == 1] = np.zeros((3, 3), dtype=int)
 
     pixel_labels = labels
-    # for each_center in p_fcm_centers:
-    #     idx = each_center[0]
-    #     center = each_center[-1]
-    #     if center <= Tn:
-    #         patch_label = np.ones((3, 3)) * 255
-    #         pixel_l = 2
-    #     elif center <= Tc and center > Tn:
-    #         patch_label = np.ones((3, 3)) * 127
-    #         pixel_l = 1
-    #     else:
-    #         patch_label = np.zeros((3, 3))
-    #         pixel_l = 0
-    #     labels[idx] = patch_label
-    #     pixel_labels[idx] = pixel_l
+
     patch_reb = []
     l_reb = []
     for idx_reb, each_path_reb in enumerate(patch_array):
         each_patch = labels[idx_reb]
         l_reb.append(pixel_labels[idx_reb])
         patch_reb.append(each_patch)
+
     h_reb, w_reb = np.shape(img)
+
     FCM_Clustered_Image = reconstruct_from_patches_2d(np.asarray(patch_reb), (h_reb, w_reb))
     labels_image = reconstruct_from_patches_2d(np.asarray(l_reb), (h_reb, w_reb))
 
-    # cv2.imshow('FCM_Clustered_Image', FCM_Clustered_Image)
-    # cv2.waitKey()
+    cv2.imshow('FCM_Clustered_Image', FCM_Clustered_Image)
+    cv2.waitKey()
     return FCM_Clustered_Image, labels_image
 
 
@@ -178,15 +163,41 @@ def imshow_components(labels):
     # cv2.waitKey()
 
 
+def choose_object_closest_to_img_center(img):
+    M = cv2.moments(img)
+    cX = int(M["m10"] / M["m00"])
+    cY = int(M["m01"] / M["m00"])
+    img_center = [cX, cY]
+    n, labels, stats, centroids = cv2.connectedComponentsWithStats(img,connectivity=8)
+    dist = 100000000
+    idx_near_c = 0
+    for idx, each_centroid in enumerate(centroids):
+        temp = np.linalg.norm(each_centroid - img_center)
+        if temp < dist:
+            if idx != 0:
+                dist = temp
+                idx_near_c = idx
+    labels[labels != idx_near_c] = 0
+    labels[labels == idx_near_c] = 255
+
+    return np.uint8(labels)
+
+
 def segment_into_nucleus_and_cyto(image, name_and_label):
     nuc = np.zeros_like(np.uint8(image))
     cyto = np.zeros_like(np.uint8(image))
-    nuc[image == 2] = 255
-    cyto[image >= 1] = 255
-    ## select only largest nuc and cyto
-    select_only_largest(cyto)
-    # select_only_largest(nuc)
-    return 0
+    nuc[image > 127] = 255
+    cyto[image != 0] = 255
+    if (nuc == 0).all():
+        print('img' + name_and_label + 'discarded, no nucleus detected')
+        l_nuc = 0
+        l_cyto = 0
+    else:
+        ## select only largest nuc and cyto
+        l_nuc = choose_object_closest_to_img_center(nuc)
+        l_cyto = choose_object_closest_to_img_center(cyto)
+
+    return l_nuc, l_cyto, name_and_label
 
 
 def select_only_largest(image):
@@ -195,6 +206,36 @@ def select_only_largest(image):
     imshow_components(np.uint8(labels))
     return 0
 
+
+def get_most_centered_components(fcm_list, name_and_label):
+    names = []
+    nuc_list = []
+    cyto_list = []
+    nuc_cyto_list = []
+    discard = []
+    for idx, each_image in enumerate(fcm_list):
+        if (each_image == 0).all() or (each_image == 127).all() or (each_image == 255).all():
+            print('discard img index = ' + str(idx) + ';all values are the same')
+            discard.append(idx)
+        else:
+            nuc, cyto, name = segment_into_nucleus_and_cyto(each_image, name_and_label[idx])
+            if isinstance(nuc,int) or isinstance(cyto,int):
+                discard.append(idx)
+            else:
+
+                names.append(name)
+                nuc_list.append(nuc)
+                cyto_list.append(cyto)
+                nuc_cyto_list.append(cv2.bitwise_or(nuc, cyto))
+
+    return nuc_list, cyto_list, nuc_cyto_list, names, discard
+
+def apply_mask(img_gray_list,mask_list):
+    out=[]
+    for idx,each in enumerate(img_gray_list):
+        out.append(cv2.bitwise_and(each,mask_list[idx]))
+
+    return out
 
 segmented_list = import_data.get_data(PATH_TO_EXPERT_HERLEV_SEGMENTATION)
 cell_image_list = import_data.get_data(PATH_TO_HERLEV_IMGS)
@@ -218,31 +259,90 @@ gray_blurr = apply_median_filter(gray_list, median_kernel_size)
 # get_image_histogram(gray_blurr[EVAL_INDEX])
 
 cv2.imshow('median blurr ', gray_blurr[EVAL_INDEX])
-gray_blurr_clahe = apply_clahe(clip_limit,window,gray_blurr)
-# get_image_histogram(gray_blurr_clahe[EVAL_INDEX])
+
+gray_blurr_clahe = apply_clahe(clip_limit, window, gray_blurr)
+
+cv2.imshow('after clahe', gray_blurr_clahe[EVAL_INDEX])
+
 # fcm clustering
-print('FCM clustering start')
-FCM_list = []
-
-FCM_labeled = []
-for each_gray_blurr in gray_blurr:
-    img_FCM, labels_img = apply_FCM(each_gray_blurr, n_clusters)
-    FCM_labeled.append(labels_img)
-    FCM_list.append(img_FCM)
-
-with open('D:/Users/joao/PycharmProjects/TP/data/fcm_results', 'wb')as fcm_id:
-    import_data.pkl.dump(FCM_list, fcm_id)
-with open('D:/Users/joao/PycharmProjects/TP/data/fcm_labels','wb') as l_id:
-    import_data.pkl.dump(FCM_labeled,l_id)
+# print('FCM clustering start')
+# FCM_list = []
+#
+# FCM_labeled = []
+# for each_gray_blurr in gray_blurr_clahe:
+#     img_FCM, labels_img = apply_FCM(each_gray_blurr, n_clusters)
+#     FCM_labeled.append(labels_img)
+#     FCM_list.append(img_FCM)
+#
+# with open('D:/Users/joao/PycharmProjects/TP/data/fcm_results', 'wb')as fcm_id:
+#     import_data.pkl.dump(FCM_list, fcm_id)
+# with open('D:/Users/joao/PycharmProjects/TP/data/fcm_labels','wb') as l_id:
+#     import_data.pkl.dump(FCM_labeled,l_id)
 FCM_list = load_FCM_results()
 FCM_labeled = load_FCM_labels()
 cv2.imshow('after FCM', FCM_list[EVAL_INDEX])
 
+
+nuc_list, cyto_list, nuc_and_cyto, names, discard = get_most_centered_components(FCM_list, name_and_label_imgs_og)
+
 m_list = apply_morph(FCM_list, disk)
-m_l_list = apply_morph(FCM_labeled, disk)
+cv2.imshow('after_morph',m_list[EVAL_INDEX])
+
+print(discard)
+for x in range(0,len(discard),1):
+    print('test')
+    remove = discard[x]
+
+    del gray_list[remove]
+    del b_list_seg[remove]
+    del m_list[remove]
+    temp = list(segmented_masks).pop(remove)
+    temp = list(name_and_label_imgs_og).pop(remove)
+    temp = list(name_and_label_exp_segment).pop(remove)
+
+    discard = [x-1 for x in discard]
+    i=0
+
+# for each_elem in discard:
+#     del gray_list[each_elem]
+#     del b_list_seg[each_elem]
+#     del m_list[each_elem]
+#     temp = list(segmented_masks).pop(each_elem)
+#     temp = list(name_and_label_imgs_og).pop(each_elem)
+#     temp = list(name_and_label_exp_segment).pop(each_elem)
+corresp_afterdiscard = np.hstack((gray_list[EVAL_INDEX],b_list_seg[EVAL_INDEX],nuc_list[EVAL_INDEX],cyto_list[EVAL_INDEX],nuc_and_cyto[EVAL_INDEX],m_list[EVAL_INDEX]))
+cv2.imshow('corresp_after discard',corresp_afterdiscard)
+
+# m_l_list = apply_morph(FCM_labeled, disk)
+# with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/morph_save_test.pickle','wb') as m_id:
+#     import_data.pkl.dump(m_list,m_id)
+# with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/morph_name_test.pickle','wb') as n_id:
+#     import_data.pkl.dump(name,n_id)
+
 cv2.imshow('after_morph', m_list[EVAL_INDEX])
 # cv2.imshow('after_morph_labels', m_l_list[EVAL_INDEX] * 127)
 
-# segment_into_nucleus_and_cyto(m_list[EVAL_INDEX], name_and_label_imgs_og[EVAL_INDEX])
+# nuc, cyto = segment_into_nucleus_and_cyto(m_list[EVAL_INDEX], name_and_label_imgs_og[EVAL_INDEX])
 
+segment = np.hstack((nuc_list[EVAL_INDEX], cyto_list[EVAL_INDEX],m_list[EVAL_INDEX]))
+
+cv2.imshow('nuc closest to center', segment)
+
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/nuc_masks.pkl','wb') as nuc_id:
+    import_data.pkl.dump(nuc_list,nuc_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/cyto_masks.pkl','wb') as cyto_id:
+    import_data.pkl.dump(cyto_list, cyto_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/mask_morph.pkl','wb') as morph_id:
+    import_data.pkl.dump(m_list,morph_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/grayscale_imgs.pkl','wb') as gray_id:
+    import_data.pkl.dump(gray_list,gray_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/b_list_seg.pkl','wb') as blu_id:
+    import_data.pkl.dump(b_list_seg,blu_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/names.pkl','wb') as name_id:
+    import_data.pkl.dump(names,name_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/seg_names.pkl','wb') as expert_id:
+    import_data.pkl.dump(name_and_label_exp_segment,expert_id)
+with open('D:/Users/joao/PycharmProjects/Trabalhos_praticos/data/nuc_and_cyto.pkl','wb') as nc_id:
+    import_data.pkl.dump(nuc_and_cyto,nc_id)
+i = 0
 cv2.waitKey()
